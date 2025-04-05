@@ -47,7 +47,8 @@ def search_person():
     {
         "name": "Person Name",
         "context": "Additional context or questions (optional)",
-        "max_results": 3 (optional, default is 3)
+        "max_results": 3 (optional, default is 3),
+        "focus_x_account": false (optional, default is false)
     }
     """
     data = request.json
@@ -58,18 +59,26 @@ def search_person():
     name = data['name']
     additional_context = data.get('context', '')
     max_results = data.get('max_results', 3)
+    focus_x_account = data.get('focus_x_account', False)
     
-    logger.info(f"Person search request: name='{name}', context='{additional_context}', max_results={max_results}")
+    logger.info(f"Person search request: name='{name}', context='{additional_context}', max_results={max_results}, focus_x_account={focus_x_account}")
     
     try:
-        result = apify_client.search_for_person(name, additional_context, max_results)
+        result = apify_client.search_for_person(
+            name=name, 
+            additional_context=additional_context, 
+            max_results=max_results,
+            focus_x_account=focus_x_account
+        )
         logger.info(f"Search completed successfully. Found {len(result.get('sources', []))} sources.")
+        if result.get('social_links', {}).get('x_twitter'):
+            logger.info(f"Found X/Twitter account: {result['social_links']['x_twitter']}")
         return jsonify(result)
     
     except Exception as e:
         logger.error(f"Error searching for person: {str(e)}")
         return jsonify({"error": str(e)}), 500
-
+    
 @app.route('/raw-search', methods=['POST'])
 def raw_search():
     """

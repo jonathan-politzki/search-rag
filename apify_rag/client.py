@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import requests
 from typing import List, Dict, Any, Optional, Union
 
@@ -75,7 +76,8 @@ class ApifyRagWebBrowserClient:
     def search_for_person(self, 
                           name: str, 
                           additional_context: str = "",
-                          max_results: int = 3) -> Dict[str, Any]:
+                          max_results: int = 3,
+                          focus_x_account: bool = False) -> Dict[str, Any]:
         """
         Search for information about a person and format the results.
         
@@ -83,12 +85,15 @@ class ApifyRagWebBrowserClient:
             name (str): The name of the person to search for
             additional_context (str, optional): Additional context or specific questions about the person
             max_results (int, optional): Maximum number of search results to process. Defaults to 3.
+            focus_x_account (bool, optional): If True, focuses on finding the person's X (Twitter) account
         
         Returns:
             Dict[str, Any]: Formatted results about the person
         """
         # Construct a search query that includes the name and any additional context
-        if additional_context:
+        if focus_x_account:
+            query = f"{name} X twitter account @"
+        elif additional_context:
             query = f"{name} {additional_context}"
         else:
             query = name
@@ -98,7 +103,8 @@ class ApifyRagWebBrowserClient:
             query=query,
             max_results=max_results,
             scraping_tool="browser-playwright",  # Use browser for better results with person searches
-            output_format="markdown"
+            output_format="markdown",
+            dynamic_content_wait_secs=3.0  # Increase wait time for dynamic content like X
         )
         
         # Extract and format the results
@@ -106,20 +112,53 @@ class ApifyRagWebBrowserClient:
             "query": query,
             "person_name": name,
             "sources": [],
-            "content": []
+            "content": [],
+            "social_links": {
+                "x_twitter": None,
+                "instagram": None,
+                "facebook": None
+            }
         }
         
         for result in search_results:
             # Add source information
             if "metadata" in result and "url" in result["metadata"]:
+                url = result["metadata"].get("url", "")
+                title = result["metadata"].get("title", "")
+                
                 source = {
-                    "url": result["metadata"].get("url", ""),
-                    "title": result["metadata"].get("title", "")
+                    "url": url,
+                    "title": title
                 }
                 formatted_results["sources"].append(source)
+                
+                # Try to extract social media links
+                if "twitter.com/" in url or "x.com/" in url:
+                    formatted_results["social_links"]["x_twitter"] = url
+                elif "instagram.com/" in url:
+                    formatted_results["social_links"]["instagram"] = url
+                elif "facebook.com/" in url:
+                    formatted_results["social_links"]["facebook"] = url
             
             # Add content
             if "markdown" in result:
-                formatted_results["content"].append(result["markdown"])
+                content = result["markdown"]
+                formatted_results["content"].append(content)
+                
+                # Try to find social links in content
+                if not formatted_results["social_links"]["x_twitter"]:
+                    x_matches = re.findall(r'https?://(?:www\.)?(twitter\.com|x\.com)/([a-zA-Z0-9_]+)', content)
+                    if x_matches:
+                        formatted_results["social_links"]["x_twitter"] = f"https://{x_matches[0][0]}/{x_matches[0][1]}"
+                
+                if not formatted_results["social_links"]["instagram"]:
+                    ig_matches = re.findall(r'https?://(?:www\.)?instagram\.com/([a-zA-Z0-9_\.]+)', content)
+                    if ig_matches:
+                        formatted_results["social_links"]["instagram"] = f"https://instagram.com/{ig_matches[0]}"
+                
+                if not formatted_results["social_links"]["facebook"]:
+                    fb_matches = re.findall(r'https?://(?:www\.)?facebook\.com/([a-zA-Z0-9\.]+)', content)
+                    if fb_matches:
+                        formatted_results["social_links"]["facebook"] = f"https://facebook.com/{fb_matches[0]}"
         
         return formatted_results
